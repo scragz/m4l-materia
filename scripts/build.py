@@ -1,4 +1,4 @@
-"""Build editable patch and staging AMXD. Final device must be frozen/saved in Max."""
+"""Build editable patch, then freeze all dependencies directly into the AMXD."""
 import json
 import shutil
 import struct
@@ -7,7 +7,9 @@ from pathlib import Path
 from dsp import build
 from schema import TABS, P
 
-ROOT=Path(__file__).resolve().parents[1];DEST=ROOT/'device';DEST.mkdir(exist_ok=True)
+ROOT=Path(__file__).resolve().parents[1]
+STAGE=ROOT/'scripts/build';STAGE.mkdir(parents=True,exist_ok=True)
+DEST=ROOT/'device';DEST.mkdir(exist_ok=True)
 V=dict(major=9,minor=0,revision=9,architecture='x64',modernui=1)
 B=[];L=[];PARAM={}
 def box(i,c,r,**k):B.append({'box':dict(id=i,maxclass=c,patching_rect=r,**k)});return i
@@ -78,13 +80,33 @@ obj('importdialog','opendialog',1500,1600);obj('importpre','prepend importtable'
 # Automation parameter banks grouped by module.
 PARAM['parameterbanks']={str(i):dict(index=i,name=t,parameters=([p['key'] for p in P if p['tab']==t]+['-']*8)[:8]) for i,t in enumerate(TABS)};PARAM['inherited_shortname']=1
 patch=dict(fileversion=1,appversion=V,classnamespace='box',rect=[60,80,1380,850],openrect=[0,0,1360,169],devicewidth=1360,openinpresentation=1,bglocked=1,boxes=[b for b in B if b['box']['id']!='panel']+[b for b in B if b['box']['id']=='panel'],lines=L,parameters=PARAM,autosave=0,title='Materia',dependency_cache=[dict(name=n,type='TEXT',implicit=1) for n in ['materia.control.js','materia.panel.js','materia.editor.js']])
-raw=(json.dumps({'patcher':patch},indent=2)+'\n').encode();(DEST/'Materia.maxpat').write_bytes(raw)
-def amxd(path,raw):
- payload=raw+b'\0';path.write_bytes(b'ampf'+struct.pack('<I',4)+b'aaaa'+b'meta'+struct.pack('<II',4,0)+b'ptch'+struct.pack('<I',len(payload))+payload)
-amxd(DEST/'Materia.amxd',raw)
-(DEST/'materia.gendsp').write_text(json.dumps({'patcher':G},indent=2)+'\n')
+raw=(json.dumps({'patcher':patch},indent=2)+'\n').encode();(STAGE/'Materia.maxpat').write_bytes(raw)
+(STAGE/'materia.gendsp').write_text(json.dumps({'patcher':G},indent=2)+'\n')
 schema='var SCHEMA='+json.dumps(P,separators=(',',':'))+';\n'
-(DEST/'materia.control.js').write_text(schema+(ROOT/'src/materia.lib.js').read_text()+'\n'+(ROOT/'src/materia.control.js').read_text())
-(DEST/'materia.panel.js').write_text(schema+(ROOT/'src/materia.panel.js').read_text());shutil.copyfile(ROOT/'src/materia.editor.js',DEST/'materia.editor.js')
-(DEST/'schema.json').write_text(json.dumps(P,indent=2))
-print(f'Built {DEST}/Materia.amxd: {len(P)} parameters, {len(code.splitlines())} GenExpr lines')
+(STAGE/'materia.control.js').write_text(schema+(ROOT/'src/materia.lib.js').read_text()+'\n'+(ROOT/'src/materia.control.js').read_text())
+(STAGE/'materia.panel.js').write_text(schema+(ROOT/'src/materia.panel.js').read_text());shutil.copyfile(ROOT/'src/materia.editor.js',STAGE/'materia.editor.js')
+(STAGE/'schema.json').write_text(json.dumps(P,indent=2))
+
+# --- Freeze: embed every dependency directly into the AMXD's collective footer, ---
+# the same 'mx@c'/'dlst'/'dire' container Live writes when you freeze by hand
+# (validated against Ableton's own maxdevtools frozen-device test fixtures).
+def _u32be(n):return struct.pack('>I',n&0xffffffff)
+def _chunk(tag,data):return tag.encode('ascii')+_u32be(8+len(data))+data
+def _padname(name):
+ b=name.encode('ascii')+b'\0';pad=(-len(b))%4;return b+b'\0'*pad
+def _mactime(path):return int(path.stat().st_mtime)+2082844800
+def freeze_amxd(main_name,main_data,dependencies,device_code=b'aaaa'):
+ stamps=[_mactime(STAGE/n) for n,_ in dependencies]+[int(Path(__file__).resolve().stat().st_mtime)+2082844800]
+ entries=[(main_name,'JSON',17,main_data,max(stamps))]+[(n,t,0,(STAGE/n).read_bytes(),_mactime(STAGE/n)) for n,t in dependencies]
+ offset=16;blob=b'';directory=b''
+ for name,typ,flag,data,mdat in entries:
+  content=(_chunk('type',typ.encode('ascii'))+_chunk('fnam',_padname(name))+_chunk('sz32',_u32be(len(data)))+
+           _chunk('of32',_u32be(offset))+_chunk('vers',_u32be(0))+_chunk('flag',_u32be(flag))+_chunk('mdat',_u32be(mdat)))
+  directory+=_chunk('dire',content);blob+=data;offset+=len(data)
+ container=b'mx@c'+_u32be(16)+_u32be(0)+_u32be(offset)+blob+_chunk('dlst',directory)
+ return (b'ampf'+struct.pack('<I',4)+device_code+
+         b'meta'+struct.pack('<I',4)+struct.pack('<I',7)+
+         b'ptch'+struct.pack('<I',len(container))+container)
+DEPENDENCIES=[('materia.control.js','TEXT'),('materia.panel.js','TEXT'),('materia.editor.js','TEXT')]
+(DEST/'Materia.amxd').write_bytes(freeze_amxd('Materia.amxd',raw+b'\0',DEPENDENCIES))
+print(f'Built {DEST}/Materia.amxd (frozen, {len(DEPENDENCIES)} dependencies embedded): {len(P)} parameters, {len(code.splitlines())} GenExpr lines')
