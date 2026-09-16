@@ -672,6 +672,22 @@ Fixed height 169 px; free width.
 
 ---
 
+### 12.1 Routing patch matrix
+
+The **Patch Matrix** button opens a large routing window. Its 22 rows are source buses and its 34 columns are module inputs, grouped by module. Each column has one connection. Click a cell to connect it; click the selected connection again to select ZERO.
+
+- **All / Data / Clocks** filters the destination columns.
+- **Used buses only** hides source rows with no connections.
+- Circles represent data inputs; squares represent clock inputs.
+- Bus meters show the current byte and clock level beside each source row.
+- Dim headers identify inputs inactive in the current module mode. Their routing can be prepared in advance.
+- An orange underline marks an input with a one-sample feedback delay.
+- Hover a cell to read the complete source and destination names and the existing connection.
+
+Matrix edits update the existing Live parameters. Dropdown changes, automation, and recalled routes update the matrix. Berlin's analog FM selector stays on the Berlin tab because it selects audio signals rather than a byte bus.
+
+---
+
 ## 13. Resolved decisions
 
 | # | Decision | Default |

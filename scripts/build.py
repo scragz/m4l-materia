@@ -30,8 +30,9 @@ for i,p in enumerate(P):
  k=p['key'];t=p['tab'];n=counts.get(t,0);counts[t]=n+1
  # Nine columns, two rows. Each parameter gets a full label and native Live widget.
  r=[294+(n%9)*97,71+(n//9)*45,89,18]
- if k in ['da_src','db_src']:r=[1190,31 if k=='da_src' else 83,158,18]
- if k in ['da_gain','db_gain']:r=[1290,52 if k=='da_gain' else 104,58,17]
+ # Output column: source menu and gain side by side for each DAC, labels above both.
+ if k in ['da_src','db_src']:r=[1190,22 if k=='da_src' else 66,104,18]
+ if k in ['da_gain','db_gain']:r=[1300,22 if k=='da_gain' else 66,48,18]
  if t=='MTX':r=[294+n*112,71,103,18]
  p['rect']=r;vis=t=='ADC1' or k in ['da_src','db_src','da_gain','db_gain']
  label=p['label'].replace(t+' ','').replace('Berlin ','').replace('Poczdam ','').replace('Jena ','').replace('Matrix ','')
@@ -77,14 +78,36 @@ for n in range(1,5):
 action('importbutton','Import table',[715,117,100,19],'noop')
 L[:]=[l for l in L if l['patchline']['source'][0]!='cmd_importbutton']
 obj('importdialog','opendialog',1500,1600);obj('importpre','prepend importtable',1500,1640);wire('cmd_importbutton','importdialog');next(b['box'] for b in B if b['box']['id']=='cmd_importbutton')['text']='bang';wire('importdialog','importpre');wire('importpre','control')
+# A full-size embedded routing window shares the original native Live parameters.
+routes=[]
+for tab in TABS:
+ for p in P:
+  if p['tab']!=tab or not p['enum'] or len(p['enum'])!=22:continue
+  key=p['key'];clock=key.endswith('_clk') or key=='ber_sync'
+  port=('CLOCK' if key.endswith('_clk') else 'SYNC' if key=='ber_sync' else 'STEP' if key in ['e1_src','e2_src'] else 'DIRECTION' if key in ['e1_gate','e2_gate'] else 'RESET' if key.endswith('_reset') else 'GATE' if key.endswith('_gate') else 'SELECT' if key=='p_bus' else 'A' if key=='p_a' else 'B' if key=='p_b' else 'IN')
+  routes.append(dict(key=key,label=p['label'],tab=tab,default=p['default'],clock=clock,port=port))
+route_patch=dict(fileversion=1,appversion=V,classnamespace='box',rect=[100,100,1260,780],openrect=[100,100,1260,780],openinpresentation=1,bglocked=1,toolbarvisible=0,title='Materia — Patch Matrix',enablehscroll=0,enablevscroll=0,boxes=[
+ {'box':dict(id='routein',maxclass='newobj',text='inlet',patching_rect=[10,820,40,22])},
+ {'box':dict(id='routeview',varname='routeview',maxclass='jsui',filename='materia.routing.js',patching_rect=[0,0,1260,780],presentation=1,presentation_rect=[0,0,1260,780],numinlets=1,numoutlets=1,border=0)},
+ {'box':dict(id='routeout',maxclass='newobj',text='outlet',patching_rect=[100,820,40,22])},
+ {'box':dict(id='window',maxclass='newobj',text='thispatcher',patching_rect=[200,820,80,22])}],lines=[
+ {'patchline':dict(source=['routein',0],destination=['routeview',0])},
+ {'patchline':dict(source=['routeview',0],destination=['routeout',0])}])
+obj('routing','p routing',20,800,no=1,varname='routing',patcher=route_patch)
+wire('control','routing',1);wire('routing','control')
+action('routingbutton','Patch Matrix',[1110,142,158,18],'openrouting')
+next(b['box'] for b in B if b['box']['id']=='routingbutton')['hidden']=0
+
 # Automation parameter banks grouped by module.
 PARAM['parameterbanks']={str(i):dict(index=i,name=t,parameters=([p['key'] for p in P if p['tab']==t]+['-']*8)[:8]) for i,t in enumerate(TABS)};PARAM['inherited_shortname']=1
-patch=dict(fileversion=1,appversion=V,classnamespace='box',rect=[60,80,1380,850],openrect=[0,0,1360,169],devicewidth=1360,openinpresentation=1,bglocked=1,boxes=[b for b in B if b['box']['id']!='panel']+[b for b in B if b['box']['id']=='panel'],lines=L,parameters=PARAM,autosave=0,title='Materia',dependency_cache=[dict(name=n,type='TEXT',implicit=1) for n in ['materia.control.js','materia.panel.js','materia.editor.js']])
+patch=dict(fileversion=1,appversion=V,classnamespace='box',rect=[60,80,1380,850],openrect=[0,0,1360,169],devicewidth=1360,openinpresentation=1,bglocked=1,boxes=[b for b in B if b['box']['id']!='panel']+[b for b in B if b['box']['id']=='panel'],lines=L,parameters=PARAM,autosave=0,title='Materia',dependency_cache=[dict(name=n,type='TEXT',implicit=1) for n in ['materia.control.js','materia.panel.js','materia.editor.js','materia.routing.js']])
 raw=(json.dumps({'patcher':patch},indent=2)+'\n').encode();(STAGE/'Materia.maxpat').write_bytes(raw)
 (STAGE/'materia.gendsp').write_text(json.dumps({'patcher':G},indent=2)+'\n')
 schema='var SCHEMA='+json.dumps(P,separators=(',',':'))+';\n'
 (STAGE/'materia.control.js').write_text(schema+(ROOT/'src/materia.lib.js').read_text()+'\n'+(ROOT/'src/materia.control.js').read_text())
 (STAGE/'materia.panel.js').write_text(schema+(ROOT/'src/materia.panel.js').read_text());shutil.copyfile(ROOT/'src/materia.editor.js',STAGE/'materia.editor.js')
+(STAGE/'materia.routing.js').write_text('var ROUTES='+json.dumps(routes,separators=(',',':'))+';\n'+(ROOT/'src/materia.routing.js').read_text())
+(STAGE/'routes.json').write_text(json.dumps(routes,indent=2))
 (STAGE/'schema.json').write_text(json.dumps(P,indent=2))
 
 # --- Freeze: embed every dependency directly into the AMXD's collective footer, ---
@@ -107,6 +130,6 @@ def freeze_amxd(main_name,main_data,dependencies,device_code=b'aaaa'):
  return (b'ampf'+struct.pack('<I',4)+device_code+
          b'meta'+struct.pack('<I',4)+struct.pack('<I',7)+
          b'ptch'+struct.pack('<I',len(container))+container)
-DEPENDENCIES=[('materia.control.js','TEXT'),('materia.panel.js','TEXT'),('materia.editor.js','TEXT')]
+DEPENDENCIES=[('materia.control.js','TEXT'),('materia.panel.js','TEXT'),('materia.editor.js','TEXT'),('materia.routing.js','TEXT')]
 (DEST/'Materia.amxd').write_bytes(freeze_amxd('Materia.amxd',raw+b'\0',DEPENDENCIES))
 print(f'Built {DEST}/Materia.amxd (frozen, {len(DEPENDENCIES)} dependencies embedded): {len(P)} parameters, {len(code.splitlines())} GenExpr lines')

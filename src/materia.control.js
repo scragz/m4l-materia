@@ -13,7 +13,7 @@ function initialize(){if(!exchange)return;send('ready',0);var all=Materia.tables
 function init(){if(!exchange)return;setupAPI();}
 function setupAPI(){try{observer=new LiveAPI(function(a){if(armed && a[0]==='selected_parameter')mapTask.schedule(0);},'live_set view');observer.property='selected_parameter';restoreMappings();}catch(e){status('Mapping available in Live');}}
 function anything(){var a=arrayfromargs(arguments),k=messagename;if(params.hasOwnProperty(k)){params[k]=Number(a[0]);send(k,params[k]);if(/_(src|gate|a|b|bus|sync|mode)$/.test(k))graph();if(k==='m_preset'||k==='m_seed')updateMatrix();if(k==='tclk_div')clockDiv();view('param',k,params[k]);notifyclients();return;} }
-function graph(){var f=Materia.delays(params);Object.keys(f).forEach(function(k){send('delay_'+k,f[k]);});view('delays',Object.keys(f).filter(function(k){return f[k];}).length);}
+function graph(){var f=Materia.delays(params);Object.keys(f).forEach(function(k){send('delay_'+k,f[k]);view('routedelay',k,f[k]);});view('delays',Object.keys(f).filter(function(k){return f[k];}).length);}
 function clockDiv(){var beats=[.0625,.125,.25,.5,1,2,4,8,16,32][Math.floor(params.tclk_div)];var o=this.patcher.getnamed('clockphase');if(o)o.message(beats*480,'ticks');}
 function transport(v){send('playing',v);}
 function updateMatrix(){var a=params.m_preset===5?customMatrix:Materia.matrix(params.m_preset,Math.floor(params.m_seed));if(matrixBuffer)matrixBuffer.poke(1,0,a);view.apply(this,['matrix'].concat(a));}
@@ -40,3 +40,14 @@ function finishMapping(){if(!armed||!observer)return;try{var ids=observer.get('s
 function unmap(n){this.patcher.getnamed('remote'+n).message('id',0);mappingPaths[n-1]='';armed=0;notifyclients();status('Tap '+n+' unmapped');}
 function restoreMappings(){for(var n=1;n<=4;n++){if(!mappingPaths[n-1])continue;try{var t=new LiveAPI(null,mappingPaths[n-1]);this.patcher.getnamed('remote'+n).message('id',Number(t.id));}catch(e){status('Re-map Tap '+n);}}}
 function notifydeleted(){timer.cancel();saveTimer.cancel();mapTask.cancel();}
+
+// Matrix edits enter through live.menu so save, automation, and the panel agree.
+function setroute(key,value){
+ var p=SCHEMA.filter(function(p){return p.key===String(key)&&p.enum&&p.enum.length===22;})[0];
+ value=Number(value);if(!p||!isFinite(value)||value<0||value>21||Math.floor(value)!==value)return;
+ this.patcher.getnamed(p.key).message(value);
+}
+function openrouting(){
+ Object.keys(params).forEach(function(k){view('param',k,params[k]);});graph();
+ this.patcher.getnamed('routing').message('front');
+}
